@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 from datetime import datetime
+import numpy as np
 
 # Set page config
 st.set_page_config(
@@ -41,6 +42,10 @@ st.markdown("""
             border-radius: 5px;
             padding: 1rem;
             margin-bottom: 2rem;
+        }
+        .stMultiSelect [data-baseweb=tag] {
+            background-color: #1f77b4;
+            color: white;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -276,7 +281,7 @@ def process_data(farm_file, water_file):
         return None
 
 # Function to plot farm data
-def plot_farm_data(selected_farm, df):
+def plot_farm_data(selected_farm, df, selected_pipes=None, show_weekly=False):
     # Filter data for selected farm
     farm_data = df[df['Farm ID'] == selected_farm]
 
@@ -293,6 +298,11 @@ def plot_farm_data(selected_farm, df):
 
     for _, row in farm_data.iterrows():
         pipe_code = row['Pipe Code']
+        
+        # Skip if pipe not selected
+        if selected_pipes and pipe_code not in selected_pipes:
+            continue
+            
         measurements = []
 
         for date_col in date_columns:
@@ -321,65 +331,149 @@ def plot_farm_data(selected_farm, df):
     st.subheader(f"Water Level Analysis for Farm {selected_farm}")
     st.caption(f"Sowing Date: {sowing_date.strftime('%Y-%m-%d')}")
     
-    # Plot 1: Individual pipe measurements
-    st.markdown("### Individual Pipe Measurements")
-    fig1, ax1 = plt.subplots(figsize=(10, 6))
-    
-    for pipe_code, data in pipe_data.items():
-        ax1.scatter(data['Days from Sowing'], data['Water Level'],
-                   label=f'Pipe {pipe_code}', alpha=0.7, s=100)
+# In the plot_farm_data function, replace the weekly plots section with:
 
-    ax1.set_xlabel('Days from Sowing', fontsize=12)
-    ax1.set_ylabel('Water Level (mm)', fontsize=12)
-    ax1.set_title(f'Water Level Measurements for Farm {selected_farm}', fontsize=14)
-    ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    ax1.grid(True, alpha=0.3)
-    plt.tight_layout()
-    
-    st.pyplot(fig1)
-    plt.close()
+    if show_weekly:
+        # Weekly average plots
+        st.markdown("### Weekly Water Level Analysis")
+        
+        # Combine all pipe data
+        all_data = pd.concat(pipe_data.values())
+        
+        # Calculate week numbers
+        all_data['Week'] = (all_data['Days from Sowing'] // 7) + 1
+        
+        # Create two columns for weekly plots
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Weekly measurements scatter plot
+            st.markdown("#### Weekly Measurements by Pipe")
+            fig_weekly_scatter, ax_weekly_scatter = plt.subplots(figsize=(10, 6))
+            
+            # Plot individual measurements as scatter points
+            for pipe_code, data in pipe_data.items():
+                data['Week'] = (data['Days from Sowing'] // 7) + 1
+                ax_weekly_scatter.scatter(data['Week'], data['Water Level'],
+                                        label=f'Pipe {pipe_code}', alpha=0.7)
+            
+            ax_weekly_scatter.set_xlabel('Weeks from Sowing', fontsize=12)
+            ax_weekly_scatter.set_ylabel('Water Level (mm)', fontsize=12)
+            ax_weekly_scatter.set_title(f'Weekly Measurements\nfor Farm {selected_farm}', fontsize=14)
+            ax_weekly_scatter.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+            ax_weekly_scatter.grid(True, alpha=0.3)
+            plt.tight_layout()
+            
+            st.pyplot(fig_weekly_scatter)
+            plt.close()
+        
+        with col2:
+            # Weekly farm average plot
+            st.markdown("#### Weekly Farm Average")
+            fig_weekly_avg, ax_weekly_avg = plt.subplots(figsize=(10, 6))
+            
+            # Calculate and plot weekly averages
+            weekly_avg_all = all_data.groupby('Week')['Water Level'].mean().reset_index()
+            ax_weekly_avg.scatter(weekly_avg_all['Week'], weekly_avg_all['Water Level'],
+                                color='k', s=100, label='Weekly Average')
+            
+            # Add overall average line
+            overall_avg = all_data['Water Level'].mean()
+            ax_weekly_avg.axhline(y=overall_avg, color='r', linestyle='--',
+                                label=f'Overall Average: {overall_avg:.1f} mm')
+            
+            ax_weekly_avg.set_xlabel('Weeks from Sowing', fontsize=12)
+            ax_weekly_avg.set_ylabel('Water Level (mm)', fontsize=12)
+            ax_weekly_avg.set_title(f'Weekly Averages\nfor Farm {selected_farm}', fontsize=14)
+            ax_weekly_avg.legend()
+            ax_weekly_avg.grid(True, alpha=0.3)
+            plt.tight_layout()
+            
+            st.pyplot(fig_weekly_avg)
+            plt.close()
+        
+        # Show weekly averages table
+        st.markdown("#### Weekly Averages Summary")
+        weekly_table = all_data.groupby('Week')['Water Level'].agg(['mean', 'count', 'std']).reset_index()
+        weekly_table.columns = ['Week', 'Average (mm)', 'Measurements', 'Std Dev']
+        st.dataframe(weekly_table.style.format({
+            'Average (mm)': '{:.1f}',
+            'Std Dev': '{:.1f}'
+        }))
+    else:
+        # Daily plots
+        st.markdown("### Daily Water Level Analysis")
+        
+        # Create two columns for daily plots
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Individual pipe measurements (scatter)
+            st.markdown("#### Individual Pipe Measurements")
+            fig1, ax1 = plt.subplots(figsize=(10, 6))
+            
+            for pipe_code, data in pipe_data.items():
+                ax1.scatter(data['Days from Sowing'], data['Water Level'],
+                           label=f'Pipe {pipe_code}', alpha=0.7, s=100)
 
-    # Plot 2: Average water level over time
-    st.markdown("### Average Water Level Over Time")
-    fig2, ax2 = plt.subplots(figsize=(10, 6))
-    
-    # Combine all pipe data
-    all_data = pd.concat(pipe_data.values())
+            ax1.set_xlabel('Days from Sowing', fontsize=12)
+            ax1.set_ylabel('Water Level (mm)', fontsize=12)
+            ax1.set_title(f'Daily Measurements\nfor Farm {selected_farm}', fontsize=14)
+            ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+            ax1.grid(True, alpha=0.3)
+            plt.tight_layout()
+            
+            st.pyplot(fig1)
+            plt.close()
+        
+        with col2:
+            # Average water level over time
+            st.markdown("#### Average Water Level Over Time")
+            fig2, ax2 = plt.subplots(figsize=(10, 6))
+            
+            # Combine all pipe data
+            all_data = pd.concat(pipe_data.values())
 
-    # Calculate daily averages
-    daily_avg = all_data.groupby('Days from Sowing')['Water Level'].mean().reset_index()
+            # Calculate daily averages
+            daily_avg = all_data.groupby('Days from Sowing')['Water Level'].mean().reset_index()
 
-    # Plot
-    ax2.scatter(daily_avg['Days from Sowing'], daily_avg['Water Level'],
-                color='k', label='Daily Average')
+            # Plot
+            ax2.scatter(daily_avg['Days from Sowing'], daily_avg['Water Level'],
+                        color='k', label='Daily Average')
 
-    # Add overall average line
-    overall_avg = all_data['Water Level'].mean()
-    ax2.axhline(y=overall_avg, color='r', linestyle='--',
-                label=f'Overall Average: {overall_avg:.1f} mm')
+            # Add overall average line
+            overall_avg = all_data['Water Level'].mean()
+            ax2.axhline(y=overall_avg, color='r', linestyle='--',
+                        label=f'Overall Average: {overall_avg:.1f} mm')
 
-    ax2.set_xlabel('Days from Sowing', fontsize=12)
-    ax2.set_ylabel('Average Water Level (mm)', fontsize=12)
-    ax2.set_title(f'Average Water Level for Farm {selected_farm}', fontsize=14)
-    ax2.legend()
-    ax2.grid(True, alpha=0.3)
-    plt.tight_layout()
-    
-    st.pyplot(fig2)
-    plt.close()
+            ax2.set_xlabel('Days from Sowing', fontsize=12)
+            ax2.set_ylabel('Water Level (mm)', fontsize=12)
+            ax2.set_title(f'Daily Averages\nfor Farm {selected_farm}', fontsize=14)
+            ax2.legend()
+            ax2.grid(True, alpha=0.3)
+            plt.tight_layout()
+            
+            st.pyplot(fig2)
+            plt.close()
 
     # Show data summary
     st.markdown("### Data Summary")
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.metric("Number of Pipes", len(pipe_data))
     
     with col2:
+        all_data = pd.concat(pipe_data.values())
         st.metric("Total Measurements", len(all_data))
     
     with col3:
+        overall_avg = all_data['Water Level'].mean()
         st.metric("Average Water Level (mm)", f"{overall_avg:.1f}")
+    
+    with col4:
+        overall_std = all_data['Water Level'].std()
+        st.metric("Standard Deviation (mm)", f"{overall_std:.1f}")
 
 # Sidebar for file uploads
 with st.sidebar:
@@ -414,8 +508,25 @@ if st.session_state.processed_data is not None:
         key="farm_selector"
     )
     
+    # Get pipes for selected farm
+    farm_pipes = st.session_state.processed_data[
+        st.session_state.processed_data['Farm ID'] == selected_farm
+    ]['Pipe Code'].unique().tolist()
+    
+    # Pipe selection (multi-select)
+    selected_pipes = st.multiselect(
+        "Select Pipes to Display (leave empty for all)",
+        options=farm_pipes,
+        default=None,
+        key="pipe_selector"
+    )
+    
+    # Toggle for weekly view
+    show_weekly = st.checkbox("Show Weekly View", value=False)
+    
     # Display plots
-    plot_farm_data(selected_farm, st.session_state.processed_data)
+    plot_farm_data(selected_farm, st.session_state.processed_data, 
+                  selected_pipes if selected_pipes else None, show_weekly)
     
     # Download button
     st.download_button(
@@ -438,4 +549,6 @@ st.sidebar.markdown("""
 1. Upload the Farm Data (Excel) and Water Level Data (CSV) files
 2. Click "Process Data" to prepare the data for analysis
 3. Select a farm from the dropdown to view water level plots
+4. Optionally select specific pipes to focus on
+5. Toggle "Show Weekly View" to switch between daily and weekly views
 """)
